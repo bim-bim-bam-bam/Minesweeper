@@ -3,15 +3,18 @@ from random import randrange
 
 SCREEN_WIDTH = 1250
 SCREEN_HEIGHT = 850
+TITLE = "Minesweeper"
 
-FIELD_WIDTH = 10
-FIELD_HEIGHT = 10
-BOMBS_COUNT = 20
-SQUARE_SIZE = 30
+FIELD_WIDTH = 35
+FIELD_HEIGHT = 35
+BOMBS_COUNT = 160
+SQUARE_SIZE = 20
+flags_left = BOMBS_COUNT
+game_over = False
 
 BUTTON_SIZE = 40
 
-number_textures = {0: "Sprites/empty sell.png",
+number_textures = {0: "Sprites/empty square.png",
                    1: "Sprites/one.png",
                    2: "Sprites/two.png",
                    3: "Sprites/three.png",
@@ -30,6 +33,7 @@ def is_on_field(x, y):
         return True
     else:
         return False
+
 
 class Square:
     def __init__(self, row, col, x, y):
@@ -60,7 +64,10 @@ class Square:
     def get_opened(self):
         return self.opened
 
-    def print_square(self, game_over):
+    def get_flagged(self):
+        return self.flagged
+
+    def print_square(self):
         # print(scale_k)
         if game_over and self.bombed:
             if self.opened:
@@ -84,43 +91,51 @@ class Square:
 
     def open_square(self, field):
         # print("Открываем клетку -", self.col, self.row)
-        if self.flagged:
+        global game_over, flags_left
+
+        if self.bombed:
+            print(self.col, self.row)
+            self.opened = True
+            game_over = True
+
+        elif self.flagged:
+            flags_left += 1
             self.flagged = False
+
+        elif self.opened:
+            for dr in [-1, 0, 1]:
+                for dc in [-1, 0, 1]:
+                    if is_on_field(self.col + dc, self.row + dr) and not field[self.row + dr][self.col + dc].get_opened() and not field[self.row + dr][self.col + dc].get_flagged():
+                        field[self.row + dr][self.col + dc].open_square(field)
 
         self.opened = True
 
-        if self.bombed:
-            return True
-
-        elif self.number == 0:
+        if self.number == 0:
+            #print("my coords =", self.row, self.col)
             for dr in [-1, 0, 1]:
                 for dc in [-1, 0, 1]:
-                    if dr == 0 and dc == 0:
-                        continue
                     if is_on_field(self.col + dc, self.row + dr) and not field[self.row + dr][self.col + dc].get_opened():
                         field[self.row + dr][self.col + dc].open_square(field)
 
-        return False
-
-    def set_flag(self, flags_left):
+    def set_flag(self):
+        global flags_left
         if not self.opened:
             if self.flagged:
                 flags_left += 1
             else:
                 flags_left -= 1
             self.flagged = not self.flagged
-        return flags_left
 
 
 class Game(arcade.Window):
     def __init__(self):
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT)
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, TITLE)
         arcade.set_background_color(arcade.color.WHITE)
 
         self.field_screen_width = FIELD_WIDTH * SQUARE_SIZE
         self.field_screen_height = FIELD_HEIGHT * SQUARE_SIZE
-        self.field_x = (SCREEN_WIDTH - self.field_screen_width) / 2
-        self.field_y = (SCREEN_HEIGHT - self.field_screen_height) / 2
+        self.field_x = (SCREEN_WIDTH - self.field_screen_width) // 2
+        self.field_y = (SCREEN_HEIGHT - self.field_screen_height) // 2
         # print(self.field_start_y)
 
         self.field = []
@@ -133,15 +148,15 @@ class Game(arcade.Window):
                                 self.field_y + (row * SQUARE_SIZE) + (SQUARE_SIZE / 2))
                 self.field[row].append(square)
 
-        self.game_over = False
         self.first_click = True
-        self.flags_left = BOMBS_COUNT
         self.mode = True
 
         self.button_sprite_list = arcade.SpriteList()
 
         self.mode_button_x = self.field_x + self.field_screen_width - (BUTTON_SIZE / 2)
-        self.mode_button_y = (self.field_y * 1.2) + self.field_screen_width
+        print(self.mode_button_x)
+        self.mode_button_y = (self.field_y * 1.5) + self.field_screen_height
+        print(self.mode_button_y)
         self.restart_button_x = SCREEN_WIDTH / 2
         self.restart_button_y = self.mode_button_y
 
@@ -177,7 +192,7 @@ class Game(arcade.Window):
         field_sprites = arcade.SpriteList()
         for row in range(FIELD_HEIGHT):
             for col in range(FIELD_WIDTH):
-                field_sprites.append(self.field[row][col].print_square(self.game_over))
+                field_sprites.append(self.field[row][col].print_square())
 
         field_sprites.draw()
         self.button_sprite_list.draw()
@@ -204,6 +219,8 @@ class Game(arcade.Window):
         return win
 
     def restart(self):
+        global game_over
+
         self.field = []
         for row in range(FIELD_HEIGHT):
             self.field.append([])
@@ -214,9 +231,8 @@ class Game(arcade.Window):
                                 self.field_y + (row * SQUARE_SIZE) + (SQUARE_SIZE / 2))
                 self.field[row].append(square)
 
-        self.game_over = False
         self.first_click = True
-        self.flags_left = BOMBS_COUNT
+        game_over = False
         self.mode = True
 
         self.mode_button_sprite = arcade.Sprite(mode_button_sprites[True], scale=BUTTON_SIZE / 32)
@@ -230,19 +246,19 @@ class Game(arcade.Window):
         self.button_sprite_list[1] = self.restart_button_sprite
 
     def on_mouse_release(self, x, y, button, modifiers):
-        if self.is_on_screen_field(x, y) and not self.game_over:
+        if self.is_on_screen_field(x, y) and not game_over:
             click = [int((x - self.field_x) // SQUARE_SIZE), int((y - self.field_y) // SQUARE_SIZE)]
             if self.first_click and self.mode:
                 self.set_bombs(click[0], click[1])
                 self.check_bombs()
-                self.game_over = self.field[click[1]][click[0]].open_square(self.field)
+                self.field[click[1]][click[0]].open_square(self.field)
                 self.first_click = False
 
             elif self.mode:
-                self.game_over = self.field[click[1]][click[0]].open_square(self.field)
+                self.field[click[1]][click[0]].open_square(self.field)
 
             else:
-                self.flags_left = self.field[click[1]][click[0]].set_flag(self.flags_left)
+                self.field[click[1]][click[0]].set_flag()
 
         elif self.is_in_button(x, y, self.mode_button_x - (BUTTON_SIZE / 2), BUTTON_SIZE, self.mode_button_y - (BUTTON_SIZE / 2), BUTTON_SIZE):
             self.mode = not self.mode
@@ -255,7 +271,7 @@ class Game(arcade.Window):
         elif self.is_in_button(x, y, self.restart_button_x - (BUTTON_SIZE / 2), BUTTON_SIZE, self.restart_button_y - (BUTTON_SIZE / 2), BUTTON_SIZE):
             self.restart()
 
-        if self.flags_left == 0 and self.check_win_condition():
+        if flags_left == 0 and self.check_win_condition():
             self.restart_button_sprite = arcade.Sprite("Sprites/win.png", scale=BUTTON_SIZE / 32)
             self.restart_button_sprite.center_x = self.restart_button_x
             self.restart_button_sprite.center_y = self.restart_button_y
